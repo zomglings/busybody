@@ -1,0 +1,294 @@
+<!doctype html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+	<title>Making the most of your filesystem</title>
+
+	<link rel="stylesheet" href="dist/reset.css">
+	<link rel="stylesheet" href="dist/reveal.css">
+	<link rel="stylesheet" href="dist/theme/black.css" id="theme">
+
+	<!-- Theme used for syntax highlighted code -->
+	<link rel="stylesheet" href="plugin/highlight/monokai.css" id="highlight-theme">
+</head>
+
+<body>
+	<div class="reveal">
+		<div class="slides">
+			<section id="title-slide">
+				<h2>Making the most of your filesystem</h2>
+				<p>Neeraj Kashyap</p>
+				<p style="font-size:50%;"><a href="https://github.com/nkashy1">github.com/nkashy1</a></p>
+			</section>
+			<section id="goal-slide" data-markdown style="text-align: left; font-size: 75%;">
+				How would you build an application which scans your computer for Python virtual
+				environments?
+
+				How would you collect statistics on Python versions and installed dependencies?
+
+				We will build this application, and it will serve as an illustration of common
+				filesystem operations.
+			</section>
+			<section id="overview-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Concepts
+
+				+ Manipulating file paths
+				+ Distinguishing between files, directories, links
+				+ `os.walk`
+				+ Temporary files
+			</section>
+			<section id="code-1-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Resolving paths: Before
+
+				[Video](https://asciinema.org/a/UHELQRXeWYRnRxJHHtz8LeLOu)
+
+				Code:
+				```python
+				if __name__ == "__main__":
+					parser = argparse.ArgumentParser(
+						description="busybody: Find all Pythons on your filesystem"
+					)
+					parser.add_argument(
+						"-d",
+						"--root-dir",
+						default=".",
+						help="Directory from which to begin your search",
+					)
+					args = parser.parse_args()
+
+					print(args.root_dir)
+				```
+			</section>
+			<section id="code-2-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Resolving paths: After
+
+				[Video](https://asciinema.org/a/SPAftE0h2l9DphqvKZUgyprnJ)
+
+				Code:
+				```python
+				if __name__ == "__main__":
+					parser = argparse.ArgumentParser(
+						description="busybody: Find all Pythons on your filesystem"
+					)
+					parser.add_argument(
+						"-d",
+						"--root-dir",
+						default=".",
+						help="Directory from which to begin your search",
+					)
+					args = parser.parse_args()
+
+					print(os.path.realpath(os.path.abspath(args.root_dir)))
+				```
+			</section>
+			<section id="code-3-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Check if a directory is a virtual environment
+
+				[Video](https://asciinema.org/a/UV4T875hwMpEp7UOYoy5jsAgt)
+
+				Code:
+				```python
+				def is_virtualenv(path: str) -> bool:
+					"""
+					Checks if a given filepath represents a Python virtual environment
+					"""
+					python_binary = os.path.join(path, "bin", "python")
+					pip_binary = os.path.join(path, "bin", "pip")
+					activate_script = os.path.join(path, "bin", "activate")
+					include_dir = os.path.join(path, "include")
+					lib_dir = os.path.join(path, "lib")
+					share_dir = os.path.join(path, "share")
+					env_config = os.path.join(path, "pyvenv.cfg")
+
+					checks = [
+						(path, os.path.isdir),
+						(python_binary, os.path.exists),
+						(pip_binary, os.path.exists),
+						(activate_script, os.path.exists),
+						(include_dir, os.path.isdir),
+						(lib_dir, os.path.isdir),
+						(share_dir, os.path.isdir),
+						(env_config, os.path.isfile),
+					]
+
+					results = [predicate(target_path) for target_path, predicate in checks]
+
+					# Wiggle room
+					return sum(results) >= len(checks) - 2
+				```
+			</section>
+			<section id="docs-1-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### os.path
+
+				Path manipulation utilities.
+
+				[Documentation](https://docs.python.org/3/library/os.path.html)
+			</section>
+			<section id="code-4-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Recursively check for virtual environments
+
+				[Video](https://asciinema.org/a/PMh18bPyVydvZ6k62s7i070gR)
+
+				Code:
+				```python
+				def get_virtualenvs(root_dir: str) -> List[str]:
+					"""
+					Returns the paths to all subdirectories of the root_dir that represent virtual environments.
+					"""
+					virtualenvs: List[str] = []
+					for dirpath, subdirectories, _ in os.walk(root_dir, topdown=True):
+						for subdirectory in subdirectories:
+							subdirectory_path = os.path.join(dirpath, subdirectory)
+							if is_virtualenv(subdirectory_path):
+								virtualenvs.append(subdirectory_path)
+								subdirectories.remove(subdirectory)
+					return virtualenvs
+				```
+			</section>
+			<section id="docs-2-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### os.walk
+
+				Traverse your your filesystem tree starting at a given root.
+
+				[Documentation](https://docs.python.org/3/library/os.html#os.walk)
+			</section>
+			<section id="code-5-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Analyze a virtualenv
+
+				[Video](https://asciinema.org/a/q4HK1GOzbIv40bF4HJntISy44)
+
+				Code:
+				```python
+				def analyze_virtualenv(virtualenv_dir: str) -> Dict[str, Any]:
+					"""
+					Analyze the virtualenv represented by the given directory and return the results of the analysis
+					in a JSON serializable object.
+					"""
+					python_binary = os.path.join(virtualenv_dir, "bin", "python")
+					pip_binary = os.path.join(virtualenv_dir, "bin", "pip")
+
+					result: Dict[str, Any] = {}
+
+					python_version_process = subprocess.run(
+						[python_binary, "--version"], capture_output=True
+					)
+					if python_version_process.returncode != 0:
+						result["python_version"] = {
+							"exit_code": python_version_process.returncode,
+							"error": python_version_process.stderr.decode().strip(),
+						}
+					else:
+						python_version = python_version_process.stdout.decode().strip()
+						result["python_version"] = python_version
+
+					pip_version_process = subprocess.run([pip_binary, "--version"], capture_output=True)
+					if pip_version_process.returncode != 0:
+						result["pip_version"] = {
+							"exit_code": pip_version_process.returncode,
+							"error": pip_version_process.stderr.decode().strip(),
+						}
+					else:
+						pip_version = pip_version_process.stdout.decode().split(" from ")[0].strip()
+						result["pip_version"] = pip_version
+
+					pip_freeze_process = subprocess.run([pip_binary, "freeze"], capture_output=True)
+					if pip_freeze_process.returncode != 0:
+						result["pip_freeze"] = {
+							"exit_code": pip_freeze_process.returncode,
+							"error": pip_freeze_process.stderr.decode().strip(),
+						}
+					else:
+						result["pip_freeze"] = pip_freeze_process.stdout.decode().strip().split("\n")
+
+					return result
+				```
+			</section>
+			<section id="code-6-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Collect virtualenv statistics
+
+				[Video](https://asciinema.org/a/n8NFeEo3xzQ4Ih1Hfi7v18NM9)
+
+				Code:
+				```python
+				def stats(root_dir: str) -> Dict[str, Any]:
+					"""
+					Statistics for virtual environments that are descendants of the given root directory.
+					"""
+					virtualenvs = get_virtualenvs(root_dir)
+					analyses = {
+						virtualenv: analyze_virtualenv(virtualenv) for virtualenv in virtualenvs
+					}
+
+					python_versions = Counter(
+						[analysis.get("python_version", None) for analysis in analyses.values()]
+					)
+
+					pip_versions = Counter(
+						[analysis.get("pip_version", None) for analysis in analyses.values()]
+					)
+
+					dependencies = [
+						decompose_dependency(dep)
+						for analysis in analyses.values()
+						for dep in analysis.get("pip_freeze", [])
+					]
+
+					dependencies_by_package = {}
+					for package, version in dependencies:
+						if dependencies_by_package.get(package) is None:
+							dependencies_by_package[package] = []
+						dependencies_by_package[package].append(version)
+
+					dependency_counts = {
+						package: Counter(versions)
+						for package, versions in dependencies_by_package.items()
+					}
+
+					result = {
+						"virtualenvs": analyses,
+						"statistics": {
+							"python_versions": python_versions,
+							"pip_versions": pip_versions,
+							"dependency_counts": dependency_counts,
+						},
+					}
+
+					return result
+				```
+			</section>
+			<section id="other-features-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Other useful tools
+
+				+ [tempfile](https://docs.python.org/3/library/tempfile.html) - To create temporary
+				files and directories. Also useful when you want to make atomic writes. Write to
+				temporary file and then move it to the desired path.
+
+				+ [glob.glob](https://docs.python.org/3/library/glob.html#glob.glob) - Find files on
+				your filesystem using [glob patterns](https://en.wikipedia.org/wiki/Glob_%28programming%29).
+			</section>
+			<section id="thank-you-slide" data-markdown style="text-align: left; font-size: 75%;">
+				### Thank you!
+			</section>
+		</div>
+	</div>
+	<script src="dist/reveal.js"></script>
+	<script src="plugin/notes/notes.js"></script>
+	<script src="plugin/markdown/markdown.js"></script>
+	<script src="plugin/highlight/highlight.js"></script>
+	<script>
+		// More info about initialization & config:
+		// - https://revealjs.com/initialization/
+		// - https://revealjs.com/config/
+		Reveal.initialize({
+			hash: true,
+
+			// Learn about plugins: https://revealjs.com/plugins/
+			plugins: [RevealMarkdown, RevealHighlight, RevealNotes]
+		});
+	</script>
+</body>
+
+</html>
